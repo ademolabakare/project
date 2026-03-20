@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lagos GIS Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Syne', sans-serif; background: #0a0e1a; color: #e2e8f0; overflow: hidden; }
+    #root { height: 100vh; display: flex; flex-direction: column; }
+    #map { width: 100%; height: 100%; }
+    .leaflet-container { background: #0f172a; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #0a0e1a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+
+    /* Sidebar glass */
+    .sidebar-glass {
+      background: rgba(10, 14, 26, 0.92);
+      backdrop-filter: blur(20px);
+      border-left: 1px solid rgba(99, 179, 237, 0.15);
+    }
+    .navbar-glass {
+      background: rgba(10, 14, 26, 0.96);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(99, 179, 237, 0.15);
+    }
+
+    /* Pulse animation for selected parcel */
+    @keyframes pulse-ring {
+      0% { box-shadow: 0 0 0 0 rgba(99, 179, 237, 0.4); }
+      100% { box-shadow: 0 0 0 8px rgba(99, 179, 237, 0); }
+    }
+    .pulse { animation: pulse-ring 1.5s infinite; }
+
+    /* Scan line effect */
+    .scan-line {
+      background: linear-gradient(
+        to bottom,
+        transparent 50%,
+        rgba(0, 0, 0, 0.03) 50%
+      );
+      background-size: 100% 4px;
+      pointer-events: none;
+    }
+
+    /* Tag style */
+    .land-use-tag {
+      font-family: 'Space Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    /* Search input glow */
+    .search-input:focus {
+      outline: none;
+      box-shadow: 0 0 0 1px #63b3ed, 0 0 16px rgba(99, 179, 237, 0.2);
+    }
+
+    /* Stat card */
+    .stat-card {
+      border: 1px solid rgba(99, 179, 237, 0.1);
+      background: rgba(30, 41, 59, 0.5);
+      transition: border-color 0.2s;
+    }
+    .stat-card:hover { border-color: rgba(99, 179, 237, 0.3); }
+
+    /* Blinking cursor */
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+    .cursor { animation: blink 1s step-end infinite; }
+
+    /* Fade in */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-up { animation: fadeUp 0.35s ease forwards; }
+
+    /* Leaflet popup override */
+    .leaflet-popup-content-wrapper {
+      background: rgba(10, 14, 26, 0.95) !important;
+      border: 1px solid rgba(99, 179, 237, 0.3) !important;
+      border-radius: 4px !important;
+      color: #e2e8f0 !important;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+    }
+    .leaflet-popup-tip { background: rgba(10, 14, 26, 0.95) !important; }
+    .leaflet-popup-content { margin: 12px 16px !important; font-family: 'Space Mono', monospace; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    // ─── GeoJSON Data ───────────────────────────────────────────────────────────
+    const PARCELS_GEOJSON = {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: {
+            parcel_id: "LG-001",
+            owner: "Adeola Fashola",
+            land_use: "Residential",
+            area: 1240,
+            address: "12 Awolowo Road, Ikoyi"
+          },
+          geometry: {
+            type: "Polygon",
+            coordinates: [[[3.4226, 6.4550],[3.4260, 6.4550],[3.4260, 6.4520],[3.4226, 6.4520],[3.4226, 6.4550]]]
+          }
+        },
+        {
+          type: "Feature",
+          properties: {
+            parcel_id: "LG-002",
+            owner: "Emeka Okafor Holdings",
+            land_use: "Commercial",
+            area: 3850,
+            address: "45 Broad Street, Lagos Island"
+          },
+          geometry: {
+            type: "Polygon",
+            coordinates: [[[3.3900, 6.4530],[3.3960, 6.4530],[3.3960, 6.4490],[3.3900, 6.4490],[3.3900, 6.4530]]]
+          }
+        },
+        {
+          type: "Feature",
+          properties: {
+            parcel_id: "LG-003",
+            owner: "Bola & Sons Nig. Ltd.",
+            land_use: "Industrial",
+            area: 8900,
+            address: "3 Apapa Port Road, Apapa"
+          },
+          geometry: {
+            type: "Polygon",
+            coordinates: [[[3.3600, 6.4480],[3.3700, 6.4480],[3.3700, 6.4420],[3.3600, 6.4420],[3.3600, 6.4480]]]
+          }
+        },
+        {
+          type: "Feature",
+          properties: {
+            parcel_id: "LG-004",
+            owner: "Chinwe Nwosu",
+            land_use: "Mixed Use",
+            area: 2100,
+            address: "78 Allen Avenue, Ikeja"
+          },
+          geometry: {
+            type: "Polygon",
+            coordinates: [[[3.3490, 6.6010],[3.3560, 6.6010],[3.3560, 6.5960],[3.3490, 6.5960],[3.3490, 6.6010]]]
+          }
+        },
+        {
+          type: "Feature",
+          properties: {
+            parcel_id: "LG-005",
+            owner: "Lagos State Government",
+            land_use: "Public/Civic",
+            area: 15600,
+            address: "Alausa Secretariat, Ikeja"
+          },
+          geometry: {
+            type: "Polygon",
+            coordinates: [[[3.3400, 6.5920],[3.3530, 6.5920],[3.3530, 6.5840],[3.3400, 6.5840],[3.3400, 6.5920]]]
+          }
+        },
+        {
+          type: "Feature",
+          properties: {
+            parcel_id: "LG-006",
+            owner: "Marina Bay Developments",
+            land_use: "Commercial",
+            area: 4200,
+            address: "10 Marina Street, Lagos Island"
+          },
+          geometry: {
+            type: "Polygon",
+            coordinates: [[[3.3980, 6.4580],[3.4050, 6.4580],[3.4050, 6.4540],[3.3980, 6.4540],[3.3980, 6.4580]]]
+          }
+        },
+        {
+          type: "Feature",
+          properties: {
+            parcel_id: "LG-007",
+            owner: "Abiodun Oladele",
+            land_use: "Residential",
+            area: 890,
+            address: "5 Lekki Phase 1, Lekki"
+          },
+          geometry: {
+            type: "Polygon",
+            coordinates: [[[3.4720, 6.4400],[3.4780, 6.4400],[3.4780, 6.4360],[3.4720, 6.4360],[3.4720, 6.4400]]]
+          }
+        },
+        {
+          type: "Feature",
+          properties: {
+            parcel_id: "LG-008",
+            owner: "Victoria Crown Estates",
+            land_use: "Recreational",
+            area: 22000,
+            address: "Victoria Island Park, V/I"
+          },
+          geometry: {
+            type: "Polygon",
+            coordinates: [[[3.4200, 6.4280],[3.4340, 6.4280],[3.4340, 6.4200],[3.4200, 6.4200],[3.4200, 6.4280]]]
+          }
+        },
+        {
+          type: "Feature",
+          properties: {
+            parcel_id: "LG-009",
+            owner: "Surulere Community Trust",
+            land_use: "Residential",
+            area: 1780,
+            address: "22 Bode Thomas, Surulere"
+          },
+          geometry: {
+            type: "Polygon",
+            coordinates: [[[3.3580, 6.4970],[3.3650, 6.4970],[3.3650, 6.4920],[3.3580, 6.4920],[3.3580, 6.4970]]]
+          }
+        },
+        {
+          type: "Feature",
+          properties: {
+            parcel_id: "LG-010",
+            owner: "Dangote Industrial Park",
+            land_use: "Industrial",
+            area: 45000,
+            address: "Ibeju-Lekki Free Zone, Lekki"
+          },
+          geometry: {
+            type: "Polygon",
+            coordinates: [[[3.5200, 6.4380],[3.5420, 6.4380],[3.5420, 6.4260],[3.5200, 6.4260],[3.5200, 6.4380]]]
+          }
+        }
+      ]
+    };
+
+    // ─── Color config ────────────────────────────────────────────────────────────
+    const LAND_USE_COLORS = {
+      "Residential":  { fill: "#3b82f6", stroke: "#60a5fa", tag: "bg-blue-900 text-blue-300" },
+      "Commercial":   { fill: "#f59e0b", stroke: "#fbbf24", tag: "bg-amber-900 text-amber-300" },
+      "Industrial":   { fill: "#ef4444", stroke: "#f87171", tag: "bg-red-900 text-red-300" },
+      "Mixed Use":    { fill: "#8b5cf6", stroke: "#a78bfa", tag: "bg-purple-900 text-purple-300" },
+      "Public/Civic": { fill: "#10b981", stroke: "#34d399", tag: "bg-emerald-900 text-emerald-300" },
+      "Recreational": { fill: "#06b6d4", stroke: "#22d3ee", tag: "bg-cyan-900 text-cyan-300" },
+    };
+    const DEFAULT_COLOR = { fill: "#64748b", stroke: "#94a3b8", tag: "bg-slate-700 text-slate-300" };
+
+    const getColor = (lu) => LAND_USE_COLORS[lu] || DEFAULT_COLOR;
+
+    // ─── Stats ────────────────────────────────────────────────────────────────
+    const STATS = {
+      total: PARCELS_GEOJSON.features.length,
+      area: (PARCELS_GEOJSON.features.reduce((s, f) => s + f.properties.area, 0) / 1000).toFixed(1),
+      lgas: 6,
+    };
+
+    // ─── Component ───────────────────────────────────────────────────────────────
+    function App() {
+      const mapRef = useRef(null);
+      const leafletMap = useRef(null);
+      const layersRef = useRef({});
+      const [selected, setSelected] = useState(null);
+      const [search, setSearch] = useState("");
+      const [highlighted, setHighlighted] = useState(null);
+      const [sidebarTab, setSidebarTab] = useState("info"); // info | legend
+
+      // Init map
+      useEffect(() => {
+        if (leafletMap.current) return;
+        const map = L.map(mapRef.current, {
+          center: [6.5244, 3.3792],
+          zoom: 12,
+          zoomControl: false,
+        });
+        L.control.zoom({ position: "bottomright" }).addTo(map);
+
+        // Dark tile layer
+        L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+          subdomains: "abcd",
+          maxZoom: 20,
+        }).addTo(map);
+
+        // Add parcels
+        PARCELS_GEOJSON.features.forEach((feature) => {
+          const id = feature.properties.parcel_id;
+          const colors = getColor(feature.properties.land_use);
+
+          const layer = L.geoJSON(feature, {
+            style: {
+              color: colors.stroke,
+              weight: 1.5,
+              fillColor: colors.fill,
+              fillOpacity: 0.35,
+              opacity: 0.8,
+            },
+          });
+
+          layer.on("mouseover", () => {
+            layer.setStyle({ fillOpacity: 0.65, weight: 2.5 });
+            layer.bindPopup(
+              `<div style="line-height:1.8">
+                <div style="color:#63b3ed;font-weight:700;margin-bottom:4px">${id}</div>
+                <div style="color:#94a3b8">${feature.properties.land_use}</div>
+                <div>${feature.properties.owner}</div>
+                <div style="color:#63b3ed">${feature.properties.area.toLocaleString()} m²</div>
+              </div>`
+            ).openPopup();
+          });
+
+          layer.on("mouseout", () => {
+            const isSelected = selected?.parcel_id === id;
+            layer.setStyle({
+              fillOpacity: isSelected ? 0.6 : 0.35,
+              weight: isSelected ? 3 : 1.5,
+            });
+            layer.closePopup();
+          });
+
+          layer.on("click", () => {
+            setSelected(feature.properties);
+            setSidebarTab("info");
+          });
+
+          layer.addTo(map);
+          layersRef.current[id] = layer;
+        });
+
+        leafletMap.current = map;
+      }, []);
+
+      // Highlight on search
+      useEffect(() => {
+        Object.entries(layersRef.current).forEach(([id, layer]) => {
+          const colors = getColor(
+            PARCELS_GEOJSON.features.find(f => f.properties.parcel_id === id)?.properties.land_use
+          );
+          const isMatch = search && id.toLowerCase().includes(search.toLowerCase());
+          const isSelected = selected?.parcel_id === id;
+
+          if (isMatch) {
+            layer.setStyle({ fillOpacity: 0.8, weight: 3.5, color: "#fbbf24" });
+            layer.bringToFront();
+            if (search.toLowerCase() === id.toLowerCase()) {
+              const bounds = layer.getBounds();
+              leafletMap.current?.fitBounds(bounds, { padding: [100, 100] });
+            }
+          } else {
+            layer.setStyle({
+              color: isSelected ? "#63b3ed" : colors.stroke,
+              fillOpacity: isSelected ? 0.6 : 0.35,
+              weight: isSelected ? 3 : 1.5,
+            });
+          }
+        });
+      }, [search, selected]);
+
+      // Fly to selected
+      useEffect(() => {
+        if (!selected) return;
+        const id = selected.parcel_id;
+        const feature = PARCELS_GEOJSON.features.find(f => f.properties.parcel_id === id);
+        if (feature && leafletMap.current) {
+          const layer = layersRef.current[id];
+          if (layer) {
+            leafletMap.current.fitBounds(layer.getBounds(), { padding: [120, 120] });
+            // Update styles
+            Object.entries(layersRef.current).forEach(([lid, l]) => {
+              const colors = getColor(
+                PARCELS_GEOJSON.features.find(f => f.properties.parcel_id === lid)?.properties.land_use
+              );
+              if (lid === id) {
+                l.setStyle({ fillOpacity: 0.7, weight: 3, color: "#63b3ed" });
+                l.bringToFront();
+              } else {
+                l.setStyle({ fillOpacity: 0.35, weight: 1.5, color: colors.stroke });
+              }
+            });
+          }
+        }
+      }, [selected]);
+
+      const handleSearchKey = (e) => {
+        if (e.key === "Escape") setSearch("");
+      };
+
+      const matchCount = search
+        ? PARCELS_GEOJSON.features.filter(f =>
+            f.properties.parcel_id.toLowerCase().includes(search.toLowerCase())
+          ).length
+        : 0;
+
+      return (
+        <div className="flex flex-col h-screen overflow-hidden">
+          {/* ── NAVBAR ── */}
+          <nav className="navbar-glass flex items-center gap-4 px-5 py-3 z-50 shrink-0">
+            {/* Logo */}
+            <div className="flex items-center gap-2 mr-2">
+              <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                <rect width="28" height="28" rx="6" fill="#1e3a5f"/>
+                <path d="M14 4L24 10V18L14 24L4 18V10L14 4Z" fill="none" stroke="#63b3ed" strokeWidth="1.5"/>
+                <circle cx="14" cy="14" r="3" fill="#63b3ed"/>
+                <circle cx="14" cy="8" r="1.5" fill="#93c5fd"/>
+                <circle cx="20" cy="11.5" r="1.5" fill="#93c5fd"/>
+                <circle cx="20" cy="16.5" r="1.5" fill="#93c5fd"/>
+              </svg>
+              <div>
+                <div className="text-sm font-bold text-white leading-none" style={{fontFamily:'Syne'}}>LAGOS GIS</div>
+                <div className="text-xs text-slate-500 leading-none" style={{fontFamily:'Space Mono',fontSize:'9px'}}>LAND REGISTRY</div>
+              </div>
+            </div>
+
+            {/* Search */}
+            <div className="relative flex-1 max-w-sm">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+              </svg>
+              <input
+                type="text"
+                placeholder="Search parcel ID…  e.g. LG-004"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onKeyDown={handleSearchKey}
+                className="search-input w-full bg-slate-900 border border-slate-700 text-slate-200 text-sm pl-9 pr-4 py-2 rounded transition-all"
+                style={{fontFamily:'Space Mono',fontSize:'12px'}}
+              />
+              {search && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                  <span className="text-xs text-amber-400" style={{fontFamily:'Space Mono'}}>{matchCount} found</span>
+                  <button onClick={() => setSearch("")} className="text-slate-500 hover:text-white text-lg leading-none">×</button>
+                </div>
+              )}
+            </div>
+
+            {/* Stats chips */}
+            <div className="hidden md:flex items-center gap-3 ml-auto">
+              {[
+                { label: "PARCELS", val: STATS.total },
+                { label: "TOTAL AREA", val: `${STATS.area}k m²` },
+                { label: "LGAs", val: STATS.lgas },
+              ].map(s => (
+                <div key={s.label} className="stat-card px-3 py-1.5 rounded text-center">
+                  <div className="text-xs text-slate-500 leading-none mb-0.5" style={{fontFamily:'Space Mono',fontSize:'9px'}}>{s.label}</div>
+                  <div className="text-sm font-bold text-blue-300" style={{fontFamily:'Space Mono'}}>{s.val}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Live indicator */}
+            <div className="flex items-center gap-1.5 ml-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-400" style={{boxShadow:'0 0 6px #34d399'}}></div>
+              <span className="text-xs text-emerald-400 hidden sm:block" style={{fontFamily:'Space Mono',fontSize:'10px'}}>LIVE</span>
+            </div>
+          </nav>
+
+          {/* ── BODY ── */}
+          <div className="flex flex-1 overflow-hidden">
+            {/* ── MAP ── */}
+            <div className="flex-1 relative">
+              <div ref={mapRef} id="map" className="w-full h-full" />
+
+              {/* Map overlay hint */}
+              {!selected && (
+                <div className="absolute bottom-6 left-6 z-10 fade-up">
+                  <div className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-slate-400" style={{fontFamily:'Space Mono'}}>
+                    ← Click a parcel to inspect
+                  </div>
+                </div>
+              )}
+
+              {/* Search overlay badge */}
+              {search && matchCount > 0 && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 fade-up">
+                  <div className="bg-amber-500 text-slate-900 rounded px-3 py-1.5 text-xs font-bold" style={{fontFamily:'Space Mono'}}>
+                    {matchCount} parcel{matchCount > 1 ? 's' : ''} matching "{search.toUpperCase()}"
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── SIDEBAR ── */}
+            <div className="sidebar-glass w-72 shrink-0 flex flex-col z-40 overflow-hidden">
+              {/* Sidebar Tabs */}
+              <div className="flex border-b border-slate-800">
+                {[{id:'info',label:'PROPERTY INFO'},{id:'legend',label:'LEGEND'}].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setSidebarTab(tab.id)}
+                    className={`flex-1 py-2.5 text-xs font-bold tracking-widest transition-colors ${sidebarTab === tab.id ? 'text-blue-300 border-b-2 border-blue-400' : 'text-slate-500 hover:text-slate-300'}`}
+                    style={{fontFamily:'Space Mono',fontSize:'9px'}}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* INFO TAB */}
+              {sidebarTab === 'info' && (
+                <div className="flex-1 overflow-y-auto">
+                  {!selected ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center px-6 gap-4 opacity-60">
+                      <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                        <rect x="8" y="8" width="32" height="32" rx="4" stroke="#475569" strokeWidth="1.5" strokeDasharray="4 3"/>
+                        <path d="M16 24h16M24 16v16" stroke="#475569" strokeWidth="1.5"/>
+                      </svg>
+                      <p className="text-slate-500 text-xs leading-relaxed" style={{fontFamily:'Space Mono'}}>
+                        Select a parcel on the map to view property details
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-4 fade-up">
+                      {/* Parcel ID Header */}
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-slate-500" style={{fontFamily:'Space Mono',fontSize:'9px'}}>PARCEL ID</span>
+                          <button
+                            onClick={() => setSelected(null)}
+                            className="text-slate-600 hover:text-white text-lg leading-none transition-colors"
+                            title="Close"
+                          >×</button>
+                        </div>
+                        <div className="text-2xl font-bold text-blue-300" style={{fontFamily:'Space Mono'}}>
+                          {selected.parcel_id}
+                        </div>
+                        <div className="text-xs text-slate-400 mt-0.5">{selected.address}</div>
+                      </div>
+
+                      {/* Land use tag */}
+                      <div className={`land-use-tag inline-block px-2 py-1 rounded mb-4 ${getColor(selected.land_use).tag}`}>
+                        ● {selected.land_use}
+                      </div>
+
+                      {/* Property details */}
+                      <div className="space-y-0 border border-slate-800 rounded overflow-hidden mb-4">
+                        {[
+                          { label: "OWNER", value: selected.owner },
+                          { label: "LAND USE", value: selected.land_use },
+                          { label: "AREA", value: `${selected.area.toLocaleString()} m²` },
+                          { label: "STATUS", value: "Registered" },
+                        ].map((row, i) => (
+                          <div key={row.label} className={`flex items-start px-3 py-2.5 gap-3 ${i % 2 === 0 ? 'bg-slate-900' : 'bg-slate-950'}`}>
+                            <span className="text-slate-500 shrink-0 w-16" style={{fontFamily:'Space Mono',fontSize:'9px',paddingTop:'2px'}}>{row.label}</span>
+                            <span className="text-slate-200 text-xs leading-snug" style={{fontFamily:row.label === 'AREA' ? 'Space Mono' : 'Syne'}}>{row.value}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Area bar */}
+                      <div className="mb-4">
+                        <div className="flex justify-between text-xs text-slate-500 mb-1" style={{fontFamily:'Space Mono',fontSize:'9px'}}>
+                          <span>AREA RELATIVE TO MAX</span>
+                          <span>{Math.round((selected.area / 45000) * 100)}%</span>
+                        </div>
+                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-700"
+                            style={{
+                              width: `${Math.round((selected.area / 45000) * 100)}%`,
+                              background: `linear-gradient(to right, ${getColor(selected.land_use).fill}, ${getColor(selected.land_use).stroke})`,
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <button className="py-2 text-xs border border-blue-800 text-blue-300 rounded hover:bg-blue-900 transition-colors" style={{fontFamily:'Space Mono',fontSize:'10px'}}>
+                          EXPORT
+                        </button>
+                        <button className="py-2 text-xs bg-blue-800 text-blue-100 rounded hover:bg-blue-700 transition-colors" style={{fontFamily:'Space Mono',fontSize:'10px'}}>
+                          DETAILS →
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Parcel List */}
+                  <div className="border-t border-slate-800 mt-2">
+                    <div className="px-4 py-2 text-slate-500" style={{fontFamily:'Space Mono',fontSize:'9px',letterSpacing:'0.1em'}}>ALL PARCELS</div>
+                    <div className="space-y-0">
+                      {PARCELS_GEOJSON.features
+                        .filter(f => !search || f.properties.parcel_id.toLowerCase().includes(search.toLowerCase()))
+                        .map(f => (
+                          <button
+                            key={f.properties.parcel_id}
+                            onClick={() => { setSelected(f.properties); setSidebarTab('info'); }}
+                            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-slate-800 ${selected?.parcel_id === f.properties.parcel_id ? 'bg-slate-800 border-l-2 border-blue-400' : ''}`}
+                          >
+                            <div className="w-2 h-2 rounded-full shrink-0" style={{background: getColor(f.properties.land_use).fill, boxShadow: `0 0 6px ${getColor(f.properties.land_use).fill}`}} />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-bold text-slate-200" style={{fontFamily:'Space Mono'}}>{f.properties.parcel_id}</div>
+                              <div className="text-xs text-slate-500 truncate">{f.properties.owner}</div>
+                            </div>
+                            <div className="text-xs text-slate-600" style={{fontFamily:'Space Mono',fontSize:'9px'}}>{(f.properties.area/1000).toFixed(1)}k</div>
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* LEGEND TAB */}
+              {sidebarTab === 'legend' && (
+                <div className="flex-1 overflow-y-auto p-4 fade-up">
+                  <div className="text-xs text-slate-400 mb-4 leading-relaxed" style={{fontFamily:'Space Mono',fontSize:'10px'}}>
+                    LAND USE CLASSIFICATION
+                  </div>
+                  <div className="space-y-3">
+                    {Object.entries(LAND_USE_COLORS).map(([lu, colors]) => {
+                      const count = PARCELS_GEOJSON.features.filter(f => f.properties.land_use === lu).length;
+                      return (
+                        <div key={lu} className="flex items-center gap-3">
+                          <div className="w-8 h-5 rounded shrink-0 border" style={{background: colors.fill + '55', borderColor: colors.stroke}} />
+                          <div className="flex-1">
+                            <div className="text-xs text-slate-200" style={{fontFamily:'Syne'}}>{lu}</div>
+                            <div className="text-xs text-slate-500" style={{fontFamily:'Space Mono',fontSize:'9px'}}>{count} parcel{count !== 1 ? 's' : ''}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-6 pt-4 border-t border-slate-800">
+                    <div className="text-xs text-slate-500 mb-3" style={{fontFamily:'Space Mono',fontSize:'9px'}}>INTERACTION GUIDE</div>
+                    <div className="space-y-2 text-xs text-slate-400" style={{fontFamily:'Space Mono',fontSize:'10px'}}>
+                      <div className="flex gap-2"><span className="text-blue-400">→</span>Click polygon to select parcel</div>
+                      <div className="flex gap-2"><span className="text-blue-400">→</span>Hover to preview details</div>
+                      <div className="flex gap-2"><span className="text-amber-400">→</span>Search by parcel ID to highlight</div>
+                      <div className="flex gap-2"><span className="text-blue-400">→</span>Scroll/pinch to zoom map</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 pt-4 border-t border-slate-800">
+                    <div className="text-xs text-slate-500 mb-2" style={{fontFamily:'Space Mono',fontSize:'9px'}}>DATA SOURCE</div>
+                    <div className="text-xs text-slate-600" style={{fontFamily:'Space Mono',fontSize:'9px'}}>
+                      Lagos State Geographic<br/>Information Systems (LAGIS)<br/>Sample Data © 2024
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="border-t border-slate-800 px-4 py-2 flex items-center justify-between shrink-0">
+                <span className="text-slate-600" style={{fontFamily:'Space Mono',fontSize:'9px'}}>CRS: WGS 84 / EPSG:4326</span>
+                <span className="text-slate-600" style={{fontFamily:'Space Mono',fontSize:'9px'}}>v1.0.0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
