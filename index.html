@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>Lagos GIS Dashboard</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -13,661 +13,883 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Syne', sans-serif; background: #0a0e1a; color: #e2e8f0; overflow: hidden; }
-    #root { height: 100vh; display: flex; flex-direction: column; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+    body { font-family: 'Syne', sans-serif; background: #060910; color: #e2e8f0; }
+    #root { height: 100dvh; display: flex; flex-direction: column; }
+
     #map { width: 100%; height: 100%; }
     .leaflet-container { background: #0f172a; }
+    .leaflet-control-zoom a { background: #1e293b !important; color: #93c5fd !important; border-color: #334155 !important; }
+    .leaflet-control-zoom a:hover { background: #334155 !important; }
 
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-track { background: #0a0e1a; }
+    ::-webkit-scrollbar { width: 3px; height: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
 
-    /* Sidebar glass */
-    .sidebar-glass {
-      background: rgba(10, 14, 26, 0.92);
-      backdrop-filter: blur(20px);
-      border-left: 1px solid rgba(99, 179, 237, 0.15);
-    }
-    .navbar-glass {
-      background: rgba(10, 14, 26, 0.96);
-      backdrop-filter: blur(20px);
-      border-bottom: 1px solid rgba(99, 179, 237, 0.15);
+    .glass-dark {
+      background: rgba(6, 9, 16, 0.94);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
     }
 
-    /* Pulse animation for selected parcel */
-    @keyframes pulse-ring {
-      0% { box-shadow: 0 0 0 0 rgba(99, 179, 237, 0.4); }
-      100% { box-shadow: 0 0 0 8px rgba(99, 179, 237, 0); }
+    /* ── Desktop sidebar ── */
+    .sidebar {
+      position: relative;
+      width: 300px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid rgba(99,179,237,0.12);
+      transition: width 0.3s ease, opacity 0.3s ease;
+      overflow: hidden;
     }
-    .pulse { animation: pulse-ring 1.5s infinite; }
+    .sidebar.collapsed { width: 0; opacity: 0; pointer-events: none; }
 
-    /* Scan line effect */
-    .scan-line {
-      background: linear-gradient(
-        to bottom,
-        transparent 50%,
-        rgba(0, 0, 0, 0.03) 50%
-      );
-      background-size: 100% 4px;
-      pointer-events: none;
+    /* ── Mobile: sidebar becomes fixed bottom sheet ── */
+    @media (max-width: 767px) {
+      .sidebar {
+        position: fixed;
+        left: 0; right: 0; bottom: 52px;
+        width: 100% !important;
+        height: 70vh;
+        border-left: none;
+        border-top: 1px solid rgba(99,179,237,0.2);
+        border-radius: 16px 16px 0 0;
+        z-index: 500;
+        opacity: 1 !important;
+        pointer-events: all !important;
+        transition: transform 0.35s cubic-bezier(.4,0,.2,1);
+        transform: translateY(100%);
+      }
+      .sidebar.sheet-peek { transform: translateY(calc(100% - 52px)); }
+      .sidebar.sheet-open  { transform: translateY(0); }
     }
 
-    /* Tag style */
-    .land-use-tag {
-      font-family: 'Space Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
+    .navbar { border-bottom: 1px solid rgba(99,179,237,0.12); }
+
+    .mobile-bottom-nav {
+      display: none;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: 52px;
+      border-top: 1px solid rgba(99,179,237,0.12);
+      z-index: 600;
     }
+    @media (max-width: 767px) { .mobile-bottom-nav { display: flex; } }
 
-    /* Search input glow */
-    .search-input:focus {
-      outline: none;
-      box-shadow: 0 0 0 1px #63b3ed, 0 0 16px rgba(99, 179, 237, 0.2);
-    }
-
-    /* Stat card */
-    .stat-card {
-      border: 1px solid rgba(99, 179, 237, 0.1);
-      background: rgba(30, 41, 59, 0.5);
-      transition: border-color 0.2s;
-    }
-    .stat-card:hover { border-color: rgba(99, 179, 237, 0.3); }
-
-    /* Blinking cursor */
-    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
-    .cursor { animation: blink 1s step-end infinite; }
-
-    /* Fade in */
     @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(8px); }
-      to { opacity: 1; transform: translateY(0); }
+      from { opacity:0; transform:translateY(10px); }
+      to   { opacity:1; transform:translateY(0); }
     }
-    .fade-up { animation: fadeUp 0.35s ease forwards; }
+    .fade-up { animation: fadeUp 0.3s ease forwards; }
 
-    /* Leaflet popup override */
-    .leaflet-popup-content-wrapper {
-      background: rgba(10, 14, 26, 0.95) !important;
-      border: 1px solid rgba(99, 179, 237, 0.3) !important;
-      border-radius: 4px !important;
-      color: #e2e8f0 !important;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+    .blink { animation: blink 1.2s step-end infinite; }
+
+    @keyframes pulse-dot {
+      0%,100% { opacity:1; transform:scale(1); }
+      50% { opacity:.5; transform:scale(1.5); }
     }
-    .leaflet-popup-tip { background: rgba(10, 14, 26, 0.95) !important; }
-    .leaflet-popup-content { margin: 12px 16px !important; font-family: 'Space Mono', monospace; font-size: 12px; }
+    .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+    .tag {
+      font-family:'Space Mono',monospace;
+      font-size:9px;
+      letter-spacing:.1em;
+      text-transform:uppercase;
+      padding:2px 7px;
+      border-radius:3px;
+      border-width: 1px;
+      border-style: solid;
+    }
+
+    .search-input:focus {
+      outline:none;
+      box-shadow:0 0 0 1px #3b82f6, 0 0 14px rgba(59,130,246,.25);
+    }
+
+    .stat-chip {
+      border:1px solid rgba(99,179,237,.1);
+      background:rgba(30,41,59,.5);
+    }
+
+    .leaflet-popup-content-wrapper {
+      background:rgba(6,9,16,.97) !important;
+      border:1px solid rgba(99,179,237,.25) !important;
+      border-radius:6px !important;
+      color:#e2e8f0 !important;
+      box-shadow:0 12px 40px rgba(0,0,0,.6) !important;
+    }
+    .leaflet-popup-tip { background:rgba(6,9,16,.97) !important; }
+    .leaflet-popup-content { margin:12px 14px !important; font-family:'Space Mono',monospace; font-size:11px; line-height:1.9; }
+    .leaflet-popup-close-button { color:#64748b !important; }
+
+    .filter-pill {
+      border:1px solid rgba(99,179,237,.15);
+      background:rgba(30,41,59,.5);
+      font-family:'Space Mono',monospace;
+      font-size:9px;
+      letter-spacing:.05em;
+      text-transform:uppercase;
+      padding:4px 10px;
+      border-radius:20px;
+      cursor:pointer;
+      transition:all .2s;
+      white-space:nowrap;
+      color: #64748b;
+    }
+    .filter-pill.active {
+      background:rgba(59,130,246,.2);
+      border-color:#3b82f6;
+      color:#93c5fd;
+    }
+    .filter-pill:hover:not(.active) { border-color:rgba(99,179,237,.35); color:#94a3b8; }
+
+    .toast {
+      position:fixed; bottom:70px; left:50%; transform:translateX(-50%);
+      background:rgba(15,23,42,.97);
+      border:1px solid rgba(99,179,237,.3);
+      border-radius:6px;
+      padding:8px 16px;
+      font-family:'Space Mono',monospace;
+      font-size:11px;
+      color:#93c5fd;
+      z-index:9999;
+      white-space:nowrap;
+      pointer-events:none;
+      animation: fadeUp .25s ease;
+    }
+
+    .map-toolbar {
+      position:absolute;
+      top:12px; left:12px;
+      z-index:400;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+
+    .toolbar-btn {
+      width:34px; height:34px;
+      background:rgba(6,9,16,.92);
+      border:1px solid rgba(99,179,237,.15);
+      border-radius:6px;
+      color:#93c5fd;
+      display:flex; align-items:center; justify-content:center;
+      cursor:pointer;
+      transition:all .2s;
+    }
+    .toolbar-btn:hover { background:rgba(30,41,59,.9); border-color:#3b82f6; }
+    .toolbar-btn.active { background:rgba(59,130,246,.2); border-color:#3b82f6; }
+
+    .coords-bar {
+      position:absolute;
+      bottom:28px; left:12px;
+      z-index:400;
+      font-family:'Space Mono',monospace;
+      font-size:9px;
+      color:#475569;
+      background:rgba(6,9,16,.82);
+      border:1px solid rgba(99,179,237,.08);
+      border-radius:4px;
+      padding:3px 8px;
+      pointer-events:none;
+    }
+
+    .progress-bar { height:3px; background:rgba(30,41,59,.8); border-radius:2px; overflow:hidden; }
+    .progress-fill { height:100%; border-radius:2px; transition:width .6s ease; }
+
+    .sheet-handle {
+      width:36px; height:4px;
+      background:#1e293b;
+      border-radius:2px;
+      margin:10px auto 0;
+      cursor:grab;
+    }
+
+    @media (max-width:767px) { .desktop-only { display:none !important; } }
+    @media (min-width:768px) { .mobile-only  { display:none !important; } }
+
+    /* push map content above mobile bottom nav */
+    @media (max-width:767px) {
+      .map-area { padding-bottom: 52px; }
+    }
   </style>
 </head>
 <body>
-  <div id="root"></div>
-  <script type="text/babel">
-    const { useState, useEffect, useRef, useCallback } = React;
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
-    // ─── GeoJSON Data ───────────────────────────────────────────────────────────
-    const PARCELS_GEOJSON = {
-      type: "FeatureCollection",
-      features: [
-        {
-          type: "Feature",
-          properties: {
-            parcel_id: "LG-001",
-            owner: "Adeola Fashola",
-            land_use: "Residential",
-            area: 1240,
-            address: "12 Awolowo Road, Ikoyi"
-          },
-          geometry: {
-            type: "Polygon",
-            coordinates: [[[3.4226, 6.4550],[3.4260, 6.4550],[3.4260, 6.4520],[3.4226, 6.4520],[3.4226, 6.4550]]]
-          }
-        },
-        {
-          type: "Feature",
-          properties: {
-            parcel_id: "LG-002",
-            owner: "Emeka Okafor Holdings",
-            land_use: "Commercial",
-            area: 3850,
-            address: "45 Broad Street, Lagos Island"
-          },
-          geometry: {
-            type: "Polygon",
-            coordinates: [[[3.3900, 6.4530],[3.3960, 6.4530],[3.3960, 6.4490],[3.3900, 6.4490],[3.3900, 6.4530]]]
-          }
-        },
-        {
-          type: "Feature",
-          properties: {
-            parcel_id: "LG-003",
-            owner: "Bola & Sons Nig. Ltd.",
-            land_use: "Industrial",
-            area: 8900,
-            address: "3 Apapa Port Road, Apapa"
-          },
-          geometry: {
-            type: "Polygon",
-            coordinates: [[[3.3600, 6.4480],[3.3700, 6.4480],[3.3700, 6.4420],[3.3600, 6.4420],[3.3600, 6.4480]]]
-          }
-        },
-        {
-          type: "Feature",
-          properties: {
-            parcel_id: "LG-004",
-            owner: "Chinwe Nwosu",
-            land_use: "Mixed Use",
-            area: 2100,
-            address: "78 Allen Avenue, Ikeja"
-          },
-          geometry: {
-            type: "Polygon",
-            coordinates: [[[3.3490, 6.6010],[3.3560, 6.6010],[3.3560, 6.5960],[3.3490, 6.5960],[3.3490, 6.6010]]]
-          }
-        },
-        {
-          type: "Feature",
-          properties: {
-            parcel_id: "LG-005",
-            owner: "Lagos State Government",
-            land_use: "Public/Civic",
-            area: 15600,
-            address: "Alausa Secretariat, Ikeja"
-          },
-          geometry: {
-            type: "Polygon",
-            coordinates: [[[3.3400, 6.5920],[3.3530, 6.5920],[3.3530, 6.5840],[3.3400, 6.5840],[3.3400, 6.5920]]]
-          }
-        },
-        {
-          type: "Feature",
-          properties: {
-            parcel_id: "LG-006",
-            owner: "Marina Bay Developments",
-            land_use: "Commercial",
-            area: 4200,
-            address: "10 Marina Street, Lagos Island"
-          },
-          geometry: {
-            type: "Polygon",
-            coordinates: [[[3.3980, 6.4580],[3.4050, 6.4580],[3.4050, 6.4540],[3.3980, 6.4540],[3.3980, 6.4580]]]
-          }
-        },
-        {
-          type: "Feature",
-          properties: {
-            parcel_id: "LG-007",
-            owner: "Abiodun Oladele",
-            land_use: "Residential",
-            area: 890,
-            address: "5 Lekki Phase 1, Lekki"
-          },
-          geometry: {
-            type: "Polygon",
-            coordinates: [[[3.4720, 6.4400],[3.4780, 6.4400],[3.4780, 6.4360],[3.4720, 6.4360],[3.4720, 6.4400]]]
-          }
-        },
-        {
-          type: "Feature",
-          properties: {
-            parcel_id: "LG-008",
-            owner: "Victoria Crown Estates",
-            land_use: "Recreational",
-            area: 22000,
-            address: "Victoria Island Park, V/I"
-          },
-          geometry: {
-            type: "Polygon",
-            coordinates: [[[3.4200, 6.4280],[3.4340, 6.4280],[3.4340, 6.4200],[3.4200, 6.4200],[3.4200, 6.4280]]]
-          }
-        },
-        {
-          type: "Feature",
-          properties: {
-            parcel_id: "LG-009",
-            owner: "Surulere Community Trust",
-            land_use: "Residential",
-            area: 1780,
-            address: "22 Bode Thomas, Surulere"
-          },
-          geometry: {
-            type: "Polygon",
-            coordinates: [[[3.3580, 6.4970],[3.3650, 6.4970],[3.3650, 6.4920],[3.3580, 6.4920],[3.3580, 6.4970]]]
-          }
-        },
-        {
-          type: "Feature",
-          properties: {
-            parcel_id: "LG-010",
-            owner: "Dangote Industrial Park",
-            land_use: "Industrial",
-            area: 45000,
-            address: "Ibeju-Lekki Free Zone, Lekki"
-          },
-          geometry: {
-            type: "Polygon",
-            coordinates: [[[3.5200, 6.4380],[3.5420, 6.4380],[3.5420, 6.4260],[3.5200, 6.4260],[3.5200, 6.4380]]]
-          }
-        }
-      ]
+/* ── Data ── */
+const PARCELS = {
+  type:"FeatureCollection",
+  features:[
+    { type:"Feature", properties:{ parcel_id:"LG-001", owner:"Adeola Fashola", land_use:"Residential",  area:1240,  address:"12 Awolowo Road, Ikoyi",            lga:"Eti-Osa",    year:2018, status:"Registered", tax_value:45000000   }, geometry:{ type:"Polygon", coordinates:[[[3.4226,6.4550],[3.4260,6.4550],[3.4260,6.4520],[3.4226,6.4520],[3.4226,6.4550]]] } },
+    { type:"Feature", properties:{ parcel_id:"LG-002", owner:"Emeka Okafor Holdings", land_use:"Commercial",   area:3850,  address:"45 Broad Street, Lagos Island",   lga:"Lagos Island",year:2015, status:"Registered", tax_value:210000000  }, geometry:{ type:"Polygon", coordinates:[[[3.3900,6.4530],[3.3960,6.4530],[3.3960,6.4490],[3.3900,6.4490],[3.3900,6.4530]]] } },
+    { type:"Feature", properties:{ parcel_id:"LG-003", owner:"Bola & Sons Nig. Ltd.", land_use:"Industrial",   area:8900,  address:"3 Apapa Port Road, Apapa",        lga:"Apapa",      year:2012, status:"Registered", tax_value:380000000  }, geometry:{ type:"Polygon", coordinates:[[[3.3600,6.4480],[3.3700,6.4480],[3.3700,6.4420],[3.3600,6.4420],[3.3600,6.4480]]] } },
+    { type:"Feature", properties:{ parcel_id:"LG-004", owner:"Chinwe Nwosu",          land_use:"Mixed Use",    area:2100,  address:"78 Allen Avenue, Ikeja",          lga:"Ikeja",      year:2020, status:"Pending",    tax_value:98000000   }, geometry:{ type:"Polygon", coordinates:[[[3.3490,6.6010],[3.3560,6.6010],[3.3560,6.5960],[3.3490,6.5960],[3.3490,6.6010]]] } },
+    { type:"Feature", properties:{ parcel_id:"LG-005", owner:"Lagos State Government",land_use:"Public/Civic", area:15600, address:"Alausa Secretariat, Ikeja",       lga:"Ikeja",      year:2001, status:"Government", tax_value:0          }, geometry:{ type:"Polygon", coordinates:[[[3.3400,6.5920],[3.3530,6.5920],[3.3530,6.5840],[3.3400,6.5840],[3.3400,6.5920]]] } },
+    { type:"Feature", properties:{ parcel_id:"LG-006", owner:"Marina Bay Developments",land_use:"Commercial",  area:4200,  address:"10 Marina Street, Lagos Island",  lga:"Lagos Island",year:2019, status:"Registered", tax_value:320000000  }, geometry:{ type:"Polygon", coordinates:[[[3.3980,6.4580],[3.4050,6.4580],[3.4050,6.4540],[3.3980,6.4540],[3.3980,6.4580]]] } },
+    { type:"Feature", properties:{ parcel_id:"LG-007", owner:"Abiodun Oladele",       land_use:"Residential",  area:890,   address:"5 Lekki Phase 1, Lekki",          lga:"Eti-Osa",    year:2021, status:"Registered", tax_value:62000000   }, geometry:{ type:"Polygon", coordinates:[[[3.4720,6.4400],[3.4780,6.4400],[3.4780,6.4360],[3.4720,6.4360],[3.4720,6.4400]]] } },
+    { type:"Feature", properties:{ parcel_id:"LG-008", owner:"Victoria Crown Estates", land_use:"Recreational", area:22000, address:"Victoria Island Park, V/I",       lga:"Eti-Osa",    year:2008, status:"Registered", tax_value:750000000  }, geometry:{ type:"Polygon", coordinates:[[[3.4200,6.4280],[3.4340,6.4280],[3.4340,6.4200],[3.4200,6.4200],[3.4200,6.4280]]] } },
+    { type:"Feature", properties:{ parcel_id:"LG-009", owner:"Surulere Community Trust",land_use:"Residential", area:1780,  address:"22 Bode Thomas, Surulere",        lga:"Surulere",   year:2016, status:"Dispute",    tax_value:55000000   }, geometry:{ type:"Polygon", coordinates:[[[3.3580,6.4970],[3.3650,6.4970],[3.3650,6.4920],[3.3580,6.4920],[3.3580,6.4970]]] } },
+    { type:"Feature", properties:{ parcel_id:"LG-010", owner:"Dangote Industrial Park", land_use:"Industrial",  area:45000, address:"Ibeju-Lekki Free Zone, Lekki",    lga:"Ibeju-Lekki",year:2017, status:"Registered", tax_value:1200000000 }, geometry:{ type:"Polygon", coordinates:[[[3.5200,6.4380],[3.5420,6.4380],[3.5420,6.4260],[3.5200,6.4260],[3.5200,6.4380]]] } },
+  ]
+};
+
+const LU = {
+  "Residential":  { fill:"#3b82f6", stroke:"#60a5fa", tag:"bg-blue-950 text-blue-300 border-blue-800" },
+  "Commercial":   { fill:"#f59e0b", stroke:"#fbbf24", tag:"bg-amber-950 text-amber-300 border-amber-800" },
+  "Industrial":   { fill:"#ef4444", stroke:"#f87171", tag:"bg-red-950 text-red-300 border-red-800" },
+  "Mixed Use":    { fill:"#8b5cf6", stroke:"#a78bfa", tag:"bg-purple-950 text-purple-300 border-purple-800" },
+  "Public/Civic": { fill:"#10b981", stroke:"#34d399", tag:"bg-emerald-950 text-emerald-300 border-emerald-800" },
+  "Recreational": { fill:"#06b6d4", stroke:"#22d3ee", tag:"bg-cyan-950 text-cyan-300 border-cyan-800" },
+};
+const ST_COLOR = { Registered:"#10b981", Pending:"#f59e0b", Dispute:"#ef4444", Government:"#3b82f6" };
+const gc = lu => LU[lu] || { fill:"#64748b", stroke:"#94a3b8", tag:"bg-slate-800 text-slate-300 border-slate-700" };
+const fmt  = n => new Intl.NumberFormat().format(n);
+const fmtN = n => n===0 ? "Exempt" : "₦"+(n>=1e9?(n/1e9).toFixed(2)+"B":n>=1e6?(n/1e6).toFixed(1)+"M":fmt(n));
+const MAX_AREA = 45000, MAX_TAX = 1200000000;
+const mono = { fontFamily:"Space Mono,monospace" };
+const syne = { fontFamily:"Syne,sans-serif" };
+
+/* ── Tiny SVG icons ── */
+const Ic = {
+  Map:    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{width:16,height:16}}><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>,
+  Layers: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{width:16,height:16}}><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>,
+  List:   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{width:16,height:16}}><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
+  Chart:  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{width:16,height:16}}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>,
+  Search: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"   style={{width:14,height:14}}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>,
+  X:      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"   style={{width:13,height:13}}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+  Pin:    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{width:16,height:16}}><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>,
+  Sat:    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{width:16,height:16}}><rect x="2" y="8" width="8" height="8" rx="1"/><path d="m14 8 4-4m0 0 2 2m-2-2-2 2"/><path d="M10 8 8 6m0 0-2 2m2-2 2 2"/><line x1="12" y1="12" x2="22" y2="22"/></svg>,
+  Topo:   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{width:16,height:16}}><path d="M3 18 8 6l5 8 3-4 5 8"/></svg>,
+  Menu:   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"   style={{width:18,height:18}}><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6"  x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>,
+  Info:   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{width:16,height:16}}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+  ChevD:  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"   style={{width:14,height:14}}><polyline points="6 9 12 15 18 9"/></svg>,
+};
+
+/* ── Mini bar chart ── */
+function BarChart({ data }) {
+  const max = Math.max(...data.map(d=>d.value), 1);
+  return (
+    <div style={{display:"flex",alignItems:"flex-end",gap:4,height:56}}>
+      {data.map(d=>{
+        const pct = Math.max(8, Math.round(d.value/max*100));
+        const cfg = gc(d.label);
+        return (
+          <div key={d.label} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}} title={`${d.label}: ${d.value}`}>
+            <div style={{width:"100%",height:`${pct}%`,background:cfg.fill,opacity:.8,borderRadius:2,minHeight:4}}/>
+            <span style={{...mono,fontSize:7,color:"#475569",textAlign:"center",lineHeight:1,letterSpacing:".02em"}}>
+              {d.label.split(/[\s/]/)[0].toUpperCase().slice(0,3)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── App ── */
+function App() {
+  const mapEl      = useRef(null);
+  const mapObj     = useRef(null);
+  const layers     = useRef({});
+  const baseTiles  = useRef({});
+  const toastTmr   = useRef(null);
+  const dragY      = useRef(null);
+
+  const [selected,   setSelected]   = useState(null);
+  const [search,     setSearch]     = useState("");
+  const [tab,        setTab]        = useState("info");
+  const [filterLU,   setFilterLU]   = useState("ALL");
+  const [basemap,    setBasemap]    = useState("dark");
+  const [coords,     setCoords]     = useState({lat:"6.52440",lng:"3.37920"});
+  const [zoom,       setZoom]       = useState(12);
+  const [toast,      setToast]      = useState(null);
+  const [sheet,      setSheet]      = useState("peek");   // peek | open
+  const [sidebarOn,  setSidebarOn]  = useState(true);
+  const [mobile,     setMobile]     = useState(window.innerWidth<768);
+  const [clock,      setClock]      = useState(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
+
+  /* clock */
+  useEffect(()=>{ const t=setInterval(()=>setClock(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})),10000); return()=>clearInterval(t); },[]);
+
+  /* resize */
+  useEffect(()=>{
+    const h=()=>setMobile(window.innerWidth<768);
+    window.addEventListener("resize",h);
+    return()=>window.removeEventListener("resize",h);
+  },[]);
+
+  /* toast */
+  const showToast = useCallback(msg=>{
+    clearTimeout(toastTmr.current);
+    setToast(msg);
+    toastTmr.current=setTimeout(()=>setToast(null),2400);
+  },[]);
+
+  /* init map */
+  useEffect(()=>{
+    if(mapObj.current) return;
+    const map = L.map(mapEl.current,{ center:[6.5244,3.3792], zoom:12, zoomControl:false, attributionControl:false });
+    L.control.zoom({position:"bottomright"}).addTo(map);
+    L.control.attribution({position:"bottomleft",prefix:false}).addTo(map);
+
+    const tiles = {
+      dark: L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{attribution:"© OSM © CARTO",maxZoom:20,subdomains:"abcd"}),
+      sat:  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{attribution:"© Esri",maxZoom:20}),
+      topo: L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",{attribution:"© OpenTopoMap",maxZoom:17,subdomains:"abc"}),
     };
+    tiles.dark.addTo(map);
+    baseTiles.current = tiles;
 
-    // ─── Color config ────────────────────────────────────────────────────────────
-    const LAND_USE_COLORS = {
-      "Residential":  { fill: "#3b82f6", stroke: "#60a5fa", tag: "bg-blue-900 text-blue-300" },
-      "Commercial":   { fill: "#f59e0b", stroke: "#fbbf24", tag: "bg-amber-900 text-amber-300" },
-      "Industrial":   { fill: "#ef4444", stroke: "#f87171", tag: "bg-red-900 text-red-300" },
-      "Mixed Use":    { fill: "#8b5cf6", stroke: "#a78bfa", tag: "bg-purple-900 text-purple-300" },
-      "Public/Civic": { fill: "#10b981", stroke: "#34d399", tag: "bg-emerald-900 text-emerald-300" },
-      "Recreational": { fill: "#06b6d4", stroke: "#22d3ee", tag: "bg-cyan-900 text-cyan-300" },
+    map.on("mousemove",e=>setCoords({lat:e.latlng.lat.toFixed(5),lng:e.latlng.lng.toFixed(5)}));
+    map.on("zoomend",  ()=>setZoom(map.getZoom()));
+
+    PARCELS.features.forEach(feat=>{
+      const p   = feat.properties;
+      const cfg = gc(p.land_use);
+      const lyr = L.geoJSON(feat,{style:{color:cfg.stroke,weight:1.5,fillColor:cfg.fill,fillOpacity:.28,opacity:.8}});
+
+      lyr.on("mouseover",()=>{
+        lyr.setStyle({fillOpacity:.62,weight:2.5});
+        lyr.bindPopup(
+          `<div style="line-height:2">
+            <div style="color:#63b3ed;font-weight:700;font-size:13px">${p.parcel_id}</div>
+            <div style="color:#94a3b8;font-size:10px">${p.land_use} · ${p.lga}</div>
+            <div style="margin-top:3px">${p.owner}</div>
+            <div style="color:#63b3ed;margin-top:2px">${fmt(p.area)} m² &nbsp;·&nbsp; ${fmtN(p.tax_value)}</div>
+            <div style="color:${ST_COLOR[p.status]||"#94a3b8"};font-size:10px;margin-top:1px">⬤ ${p.status}</div>
+          </div>`
+        ).openPopup();
+      });
+      lyr.on("mouseout",()=>{ lyr.closePopup(); });
+      lyr.on("click",()=>{
+        setSelected(p);
+        setTab("info");
+        if(window.innerWidth<768) setSheet("open");
+      });
+
+      lyr.addTo(map);
+      layers.current[p.parcel_id]=lyr;
+    });
+
+    mapObj.current=map;
+  },[]);
+
+  /* sync layer styles */
+  useEffect(()=>{
+    PARCELS.features.forEach(feat=>{
+      const id  = feat.properties.parcel_id;
+      const lu  = feat.properties.land_use;
+      const cfg = gc(lu);
+      const lyr = layers.current[id];
+      if(!lyr) return;
+
+      const hidden   = filterLU!=="ALL" && lu!==filterLU;
+      const isSearch = search && (id.toLowerCase().includes(search.toLowerCase()) || feat.properties.owner.toLowerCase().includes(search.toLowerCase()));
+      const isSel    = selected?.parcel_id===id;
+
+      if(hidden){ lyr.setStyle({fillOpacity:0,opacity:0}); return; }
+      lyr.setStyle({
+        color:       isSearch?"#fbbf24" : isSel?"#63b3ed" : cfg.stroke,
+        weight:      isSearch?3.5        : isSel?3          : 1.5,
+        fillOpacity: isSearch?.78        : isSel?.65         : .28,
+        opacity:     .9,
+      });
+      if(isSel||isSearch) lyr.bringToFront();
+    });
+  },[search,selected,filterLU]);
+
+  /* fly to selected */
+  useEffect(()=>{
+    if(!selected) return;
+    const lyr=layers.current[selected.parcel_id];
+    if(lyr&&mapObj.current) mapObj.current.fitBounds(lyr.getBounds(),{padding:[80,80]});
+  },[selected]);
+
+  /* fly to exact search match */
+  useEffect(()=>{
+    if(!search) return;
+    const feat=PARCELS.features.find(f=>f.properties.parcel_id.toLowerCase()===search.toLowerCase());
+    if(feat){
+      const lyr=layers.current[feat.properties.parcel_id];
+      if(lyr&&mapObj.current){ mapObj.current.fitBounds(lyr.getBounds(),{padding:[80,80]}); showToast(`Zoomed to ${feat.properties.parcel_id}`); }
+    }
+  },[search]);
+
+  /* basemap switch */
+  const switchBasemap = useCallback(key=>{
+    if(!mapObj.current) return;
+    Object.entries(baseTiles.current).forEach(([k,l])=>{ k===key?mapObj.current.addLayer(l):mapObj.current.removeLayer(l); });
+    setBasemap(key);
+    showToast(`Basemap → ${key.toUpperCase()}`);
+  },[showToast]);
+
+  const resetView = ()=>{ mapObj.current?.setView([6.5244,3.3792],12); showToast("View reset → Lagos"); };
+
+  /* stats */
+  const stats = useMemo(()=>{
+    const f=PARCELS.features;
+    return {
+      total:    f.length,
+      area:     f.reduce((s,x)=>s+x.properties.area,0),
+      tax:      f.reduce((s,x)=>s+x.properties.tax_value,0),
+      lgas:     [...new Set(f.map(x=>x.properties.lga))].length,
+      byLU:     Object.keys(LU).map(lu=>({label:lu,value:f.filter(x=>x.properties.land_use===lu).length})).filter(d=>d.value>0),
+      byStatus: f.reduce((acc,x)=>{ acc[x.properties.status]=(acc[x.properties.status]||0)+1; return acc; },{}),
     };
-    const DEFAULT_COLOR = { fill: "#64748b", stroke: "#94a3b8", tag: "bg-slate-700 text-slate-300" };
+  },[]);
 
-    const getColor = (lu) => LAND_USE_COLORS[lu] || DEFAULT_COLOR;
+  /* filtered list */
+  const filtered = useMemo(()=>
+    PARCELS.features.filter(f=>{
+      const p=f.properties;
+      const ms=!search||(p.parcel_id+p.owner+p.lga).toLowerCase().includes(search.toLowerCase());
+      return ms && (filterLU==="ALL"||p.land_use===filterLU);
+    })
+  ,[search,filterLU]);
 
-    // ─── Stats ────────────────────────────────────────────────────────────────
-    const STATS = {
-      total: PARCELS_GEOJSON.features.length,
-      area: (PARCELS_GEOJSON.features.reduce((s, f) => s + f.properties.area, 0) / 1000).toFixed(1),
-      lgas: 6,
-    };
+  /* mobile sheet drag */
+  const onTouchStart = e=>{ dragY.current=e.touches[0].clientY; };
+  const onTouchEnd   = e=>{
+    if(dragY.current===null) return;
+    const dy=e.changedTouches[0].clientY-dragY.current;
+    if(dy>50)       setSheet("peek");
+    else if(dy<-50) setSheet("open");
+    dragY.current=null;
+  };
 
-    // ─── Component ───────────────────────────────────────────────────────────────
-    function App() {
-      const mapRef = useRef(null);
-      const leafletMap = useRef(null);
-      const layersRef = useRef({});
-      const [selected, setSelected] = useState(null);
-      const [search, setSearch] = useState("");
-      const [highlighted, setHighlighted] = useState(null);
-      const [sidebarTab, setSidebarTab] = useState("info"); // info | legend
+  /* sidebar/sheet class */
+  const sidebarCls = mobile
+    ? `sidebar glass-dark ${sheet==="open"?"sheet-open":"sheet-peek"}`
+    : `sidebar glass-dark ${sidebarOn?"":"collapsed"}`;
 
-      // Init map
-      useEffect(() => {
-        if (leafletMap.current) return;
-        const map = L.map(mapRef.current, {
-          center: [6.5244, 3.3792],
-          zoom: 12,
-          zoomControl: false,
-        });
-        L.control.zoom({ position: "bottomright" }).addTo(map);
+  const matchCount = filtered.length;
 
-        // Dark tile layer
-        L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-          subdomains: "abcd",
-          maxZoom: 20,
-        }).addTo(map);
+  /* ─── Render ─── */
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"100dvh",overflow:"hidden"}}>
 
-        // Add parcels
-        PARCELS_GEOJSON.features.forEach((feature) => {
-          const id = feature.properties.parcel_id;
-          const colors = getColor(feature.properties.land_use);
+      {/* ══ NAVBAR ══ */}
+      <nav className="navbar glass-dark shrink-0" style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",minHeight:52,zIndex:600}}>
+        {/* Logo */}
+        <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+          <div style={{width:32,height:32,borderRadius:7,background:"#0c1a2e",border:"1px solid rgba(99,179,237,.25)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <polygon points="9,1 17,5 17,13 9,17 1,13 1,5" fill="none" stroke="#63b3ed" strokeWidth="1.2"/>
+              <circle cx="9" cy="9" r="2.2" fill="#63b3ed"/>
+            </svg>
+          </div>
+          <div>
+            <div style={{...syne,fontWeight:700,fontSize:13,color:"#e2e8f0",letterSpacing:".03em",lineHeight:1.1}}>LAGOS GIS</div>
+            <div style={{...mono,fontSize:8,color:"#475569",letterSpacing:".1em",lineHeight:1}}>LAND REGISTRY</div>
+          </div>
+        </div>
 
-          const layer = L.geoJSON(feature, {
-            style: {
-              color: colors.stroke,
-              weight: 1.5,
-              fillColor: colors.fill,
-              fillOpacity: 0.35,
-              opacity: 0.8,
-            },
-          });
+        {/* Search */}
+        <div style={{position:"relative",flex:1,minWidth:0,maxWidth:300,margin:"0 4px"}}>
+          <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:"#475569",pointerEvents:"none",display:"flex"}}>{Ic.Search}</span>
+          <input
+            type="text"
+            placeholder="Search parcel ID or owner…"
+            value={search}
+            onChange={e=>setSearch(e.target.value)}
+            onKeyDown={e=>{ if(e.key==="Escape")setSearch(""); }}
+            className="search-input"
+            style={{...mono,width:"100%",background:"#0f172a",border:"1px solid #1e293b",color:"#e2e8f0",fontSize:11,padding:"6px 28px 6px 30px",borderRadius:5,transition:"all .2s"}}
+          />
+          {search&&<button onClick={()=>setSearch("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",color:"#475569",background:"none",border:"none",cursor:"pointer",display:"flex"}}>{Ic.X}</button>}
+        </div>
 
-          layer.on("mouseover", () => {
-            layer.setStyle({ fillOpacity: 0.65, weight: 2.5 });
-            layer.bindPopup(
-              `<div style="line-height:1.8">
-                <div style="color:#63b3ed;font-weight:700;margin-bottom:4px">${id}</div>
-                <div style="color:#94a3b8">${feature.properties.land_use}</div>
-                <div>${feature.properties.owner}</div>
-                <div style="color:#63b3ed">${feature.properties.area.toLocaleString()} m²</div>
-              </div>`
-            ).openPopup();
-          });
+        {/* Desktop stat chips */}
+        <div className="desktop-only" style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
+          {[
+            {l:"PARCELS",     v:stats.total},
+            {l:"TOTAL AREA",  v:`${(stats.area/1000).toFixed(1)}k m²`},
+            {l:"REG. VALUE",  v:fmtN(stats.tax)},
+          ].map(s=>(
+            <div key={s.l} className="stat-chip" style={{padding:"4px 10px",borderRadius:5,textAlign:"center"}}>
+              <div style={{...mono,fontSize:8,color:"#475569",letterSpacing:".08em"}}>{s.l}</div>
+              <div style={{...mono,fontSize:11,color:"#93c5fd",fontWeight:700}}>{s.v}</div>
+            </div>
+          ))}
+        </div>
 
-          layer.on("mouseout", () => {
-            const isSelected = selected?.parcel_id === id;
-            layer.setStyle({
-              fillOpacity: isSelected ? 0.6 : 0.35,
-              weight: isSelected ? 3 : 1.5,
-            });
-            layer.closePopup();
-          });
+        {/* Live */}
+        <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0,marginLeft:8}}>
+          <div className="pulse-dot" style={{width:7,height:7,borderRadius:"50%",background:"#34d399",boxShadow:"0 0 6px #34d399"}}/>
+          <span className="desktop-only" style={{...mono,fontSize:9,color:"#34d399"}}>LIVE</span>
+        </div>
 
-          layer.on("click", () => {
-            setSelected(feature.properties);
-            setSidebarTab("info");
-          });
+        {/* Mobile: open sheet button */}
+        <button className="mobile-only toolbar-btn" onClick={()=>setSheet(s=>s==="open"?"peek":"open")} style={{marginLeft:4,flexShrink:0}}>
+          {Ic.Menu}
+        </button>
 
-          layer.addTo(map);
-          layersRef.current[id] = layer;
-        });
+        {/* Desktop: toggle sidebar */}
+        <button className="desktop-only toolbar-btn" onClick={()=>setSidebarOn(o=>!o)} style={{marginLeft:4,flexShrink:0}} title="Toggle sidebar">
+          {Ic.List}
+        </button>
+      </nav>
 
-        leafletMap.current = map;
-      }, []);
-
-      // Highlight on search
-      useEffect(() => {
-        Object.entries(layersRef.current).forEach(([id, layer]) => {
-          const colors = getColor(
-            PARCELS_GEOJSON.features.find(f => f.properties.parcel_id === id)?.properties.land_use
+      {/* ══ FILTER BAR ══ */}
+      <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",overflowX:"auto",borderBottom:"1px solid #0f172a",background:"rgba(6,9,16,.92)",flexShrink:0}}>
+        <button className={`filter-pill${filterLU==="ALL"?" active":""}`} onClick={()=>setFilterLU("ALL")}>All ({stats.total})</button>
+        {Object.keys(LU).map(lu=>{
+          const cnt=PARCELS.features.filter(f=>f.properties.land_use===lu).length;
+          if(!cnt) return null;
+          return (
+            <button key={lu} className={`filter-pill${filterLU===lu?" active":""}`} onClick={()=>setFilterLU(lu===filterLU?"ALL":lu)}>
+              <span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:gc(lu).fill,marginRight:5,boxShadow:`0 0 4px ${gc(lu).fill}`,verticalAlign:"middle"}}/>
+              {lu.split(/[\s/]/)[0]} ({cnt})
+            </button>
           );
-          const isMatch = search && id.toLowerCase().includes(search.toLowerCase());
-          const isSelected = selected?.parcel_id === id;
+        })}
+        {search&&<span style={{...mono,fontSize:9,color:"#f59e0b",flexShrink:0,marginLeft:4}}>{matchCount} match{matchCount!==1?"es":""}</span>}
+      </div>
 
-          if (isMatch) {
-            layer.setStyle({ fillOpacity: 0.8, weight: 3.5, color: "#fbbf24" });
-            layer.bringToFront();
-            if (search.toLowerCase() === id.toLowerCase()) {
-              const bounds = layer.getBounds();
-              leafletMap.current?.fitBounds(bounds, { padding: [100, 100] });
-            }
-          } else {
-            layer.setStyle({
-              color: isSelected ? "#63b3ed" : colors.stroke,
-              fillOpacity: isSelected ? 0.6 : 0.35,
-              weight: isSelected ? 3 : 1.5,
-            });
-          }
-        });
-      }, [search, selected]);
+      {/* ══ BODY ══ */}
+      <div style={{display:"flex",flex:1,overflow:"hidden",position:"relative"}}>
 
-      // Fly to selected
-      useEffect(() => {
-        if (!selected) return;
-        const id = selected.parcel_id;
-        const feature = PARCELS_GEOJSON.features.find(f => f.properties.parcel_id === id);
-        if (feature && leafletMap.current) {
-          const layer = layersRef.current[id];
-          if (layer) {
-            leafletMap.current.fitBounds(layer.getBounds(), { padding: [120, 120] });
-            // Update styles
-            Object.entries(layersRef.current).forEach(([lid, l]) => {
-              const colors = getColor(
-                PARCELS_GEOJSON.features.find(f => f.properties.parcel_id === lid)?.properties.land_use
-              );
-              if (lid === id) {
-                l.setStyle({ fillOpacity: 0.7, weight: 3, color: "#63b3ed" });
-                l.bringToFront();
-              } else {
-                l.setStyle({ fillOpacity: 0.35, weight: 1.5, color: colors.stroke });
-              }
-            });
-          }
-        }
-      }, [selected]);
+        {/* ── MAP ── */}
+        <div className="map-area" style={{flex:1,position:"relative"}}>
+          <div ref={mapEl} id="map"/>
 
-      const handleSearchKey = (e) => {
-        if (e.key === "Escape") setSearch("");
-      };
+          {/* Map toolbar */}
+          <div className="map-toolbar">
+            {[
+              {k:"dark", icon:Ic.Map,  t:"Dark"},
+              {k:"sat",  icon:Ic.Sat,  t:"Satellite"},
+              {k:"topo", icon:Ic.Topo, t:"Topo"},
+            ].map(b=>(
+              <button key={b.k} className={`toolbar-btn${basemap===b.k?" active":""}`} title={b.t} onClick={()=>switchBasemap(b.k)} style={{display:"flex"}}>
+                {b.icon}
+              </button>
+            ))}
+            <div style={{height:4}}/>
+            <button className="toolbar-btn" title="Reset view" onClick={resetView} style={{display:"flex"}}>{Ic.Pin}</button>
+          </div>
 
-      const matchCount = search
-        ? PARCELS_GEOJSON.features.filter(f =>
-            f.properties.parcel_id.toLowerCase().includes(search.toLowerCase())
-          ).length
-        : 0;
+          {/* Coords bar */}
+          <div className="coords-bar desktop-only">
+            LAT {coords.lat} · LNG {coords.lng} · Z{zoom} · WGS84
+          </div>
 
-      return (
-        <div className="flex flex-col h-screen overflow-hidden">
-          {/* ── NAVBAR ── */}
-          <nav className="navbar-glass flex items-center gap-4 px-5 py-3 z-50 shrink-0">
-            {/* Logo */}
-            <div className="flex items-center gap-2 mr-2">
-              <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                <rect width="28" height="28" rx="6" fill="#1e3a5f"/>
-                <path d="M14 4L24 10V18L14 24L4 18V10L14 4Z" fill="none" stroke="#63b3ed" strokeWidth="1.5"/>
-                <circle cx="14" cy="14" r="3" fill="#63b3ed"/>
-                <circle cx="14" cy="8" r="1.5" fill="#93c5fd"/>
-                <circle cx="20" cy="11.5" r="1.5" fill="#93c5fd"/>
-                <circle cx="20" cy="16.5" r="1.5" fill="#93c5fd"/>
-              </svg>
-              <div>
-                <div className="text-sm font-bold text-white leading-none" style={{fontFamily:'Syne'}}>LAGOS GIS</div>
-                <div className="text-xs text-slate-500 leading-none" style={{fontFamily:'Space Mono',fontSize:'9px'}}>LAND REGISTRY</div>
+          {/* Hint */}
+          {!selected&&!mobile&&(
+            <div className="fade-up" style={{position:"absolute",bottom:32,left:"50%",transform:"translateX(-50%)",zIndex:400}}>
+              <div style={{background:"rgba(6,9,16,.85)",border:"1px solid rgba(99,179,237,.12)",borderRadius:5,padding:"5px 14px",...mono,fontSize:10,color:"#334155"}}>
+                Click a parcel · Hover for preview
               </div>
             </div>
+          )}
+        </div>
 
-            {/* Search */}
-            <div className="relative flex-1 max-w-sm">
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-              </svg>
-              <input
-                type="text"
-                placeholder="Search parcel ID…  e.g. LG-004"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                onKeyDown={handleSearchKey}
-                className="search-input w-full bg-slate-900 border border-slate-700 text-slate-200 text-sm pl-9 pr-4 py-2 rounded transition-all"
-                style={{fontFamily:'Space Mono',fontSize:'12px'}}
-              />
-              {search && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                  <span className="text-xs text-amber-400" style={{fontFamily:'Space Mono'}}>{matchCount} found</span>
-                  <button onClick={() => setSearch("")} className="text-slate-500 hover:text-white text-lg leading-none">×</button>
+        {/* ══ SIDEBAR / BOTTOM SHEET ══ */}
+        <div className={sidebarCls}>
+
+          {/* Mobile drag handle */}
+          {mobile&&(
+            <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+              onClick={()=>setSheet(s=>s==="open"?"peek":"open")}
+              style={{cursor:"pointer",flexShrink:0}}>
+              <div className="sheet-handle"/>
+              {sheet==="peek"&&(
+                <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"6px 0 4px",...mono,fontSize:9,color:"#475569",letterSpacing:".08em"}}>
+                  {selected?`${selected.parcel_id} · ${selected.land_use}`:"PROPERTY PANEL"}
+                  {Ic.ChevD}
                 </div>
               )}
             </div>
+          )}
 
-            {/* Stats chips */}
-            <div className="hidden md:flex items-center gap-3 ml-auto">
-              {[
-                { label: "PARCELS", val: STATS.total },
-                { label: "TOTAL AREA", val: `${STATS.area}k m²` },
-                { label: "LGAs", val: STATS.lgas },
-              ].map(s => (
-                <div key={s.label} className="stat-card px-3 py-1.5 rounded text-center">
-                  <div className="text-xs text-slate-500 leading-none mb-0.5" style={{fontFamily:'Space Mono',fontSize:'9px'}}>{s.label}</div>
-                  <div className="text-sm font-bold text-blue-300" style={{fontFamily:'Space Mono'}}>{s.val}</div>
-                </div>
-              ))}
-            </div>
+          {/* Tabs */}
+          <div style={{display:"flex",flexShrink:0,borderBottom:"1px solid #0f172a"}}>
+            {[{id:"info",icon:Ic.Info,l:"INFO"},{id:"stats",icon:Ic.Chart,l:"STATS"},{id:"legend",icon:Ic.Layers,l:"LEGEND"}].map(t=>(
+              <button key={t.id} onClick={()=>setTab(t.id)}
+                style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"10px 4px",
+                  ...mono,fontSize:9,letterSpacing:".07em",background:"transparent",border:"none",cursor:"pointer",
+                  borderBottom:`2px solid ${tab===t.id?"#3b82f6":"transparent"}`,
+                  color:tab===t.id?"#93c5fd":"#475569",transition:"color .2s"}}>
+                {t.icon}{t.l}
+              </button>
+            ))}
+          </div>
 
-            {/* Live indicator */}
-            <div className="flex items-center gap-1.5 ml-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-400" style={{boxShadow:'0 0 6px #34d399'}}></div>
-              <span className="text-xs text-emerald-400 hidden sm:block" style={{fontFamily:'Space Mono',fontSize:'10px'}}>LIVE</span>
-            </div>
-          </nav>
-
-          {/* ── BODY ── */}
-          <div className="flex flex-1 overflow-hidden">
-            {/* ── MAP ── */}
-            <div className="flex-1 relative">
-              <div ref={mapRef} id="map" className="w-full h-full" />
-
-              {/* Map overlay hint */}
-              {!selected && (
-                <div className="absolute bottom-6 left-6 z-10 fade-up">
-                  <div className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-slate-400" style={{fontFamily:'Space Mono'}}>
-                    ← Click a parcel to inspect
+          {/* ── INFO TAB ── */}
+          {tab==="info"&&(
+            <div style={{flex:1,overflowY:"auto"}}>
+              {selected?(
+                <div className="fade-up" style={{padding:14}}>
+                  {/* Header */}
+                  <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:10}}>
+                    <div>
+                      <div style={{...mono,fontSize:8,color:"#475569",letterSpacing:".1em",marginBottom:2}}>PARCEL ID</div>
+                      <div style={{...mono,fontSize:19,fontWeight:700,color:"#93c5fd",lineHeight:1}}>{selected.parcel_id}</div>
+                      <div style={{fontSize:11,color:"#64748b",marginTop:3}}>{selected.address}</div>
+                    </div>
+                    <button onClick={()=>setSelected(null)} style={{color:"#475569",background:"none",border:"none",cursor:"pointer",padding:4,display:"flex"}}>
+                      {Ic.X}
+                    </button>
+                  </div>
+                  {/* Tags */}
+                  <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:12}}>
+                    <span className={`tag ${gc(selected.land_use).tag}`}>● {selected.land_use}</span>
+                    <span className="tag" style={{background:"#0f172a",borderColor:"#1e293b",color:ST_COLOR[selected.status]||"#94a3b8"}}>
+                      {selected.status}
+                    </span>
+                    <span className="tag" style={{background:"#0f172a",borderColor:"#1e293b",color:"#475569"}}>{selected.lga}</span>
+                  </div>
+                  {/* Detail rows */}
+                  <div style={{borderRadius:5,overflow:"hidden",border:"1px solid #0f172a",marginBottom:12}}>
+                    {[["OWNER",selected.owner],["AREA",`${fmt(selected.area)} m²`],["TAX VALUE",fmtN(selected.tax_value)],["REG. YEAR",selected.year],["LGA",selected.lga]].map(([k,v],i)=>(
+                      <div key={k} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"9px 12px",background:i%2===0?"#0f172a":"#060910"}}>
+                        <span style={{...mono,fontSize:8,color:"#475569",letterSpacing:".07em",paddingTop:2,width:60,flexShrink:0}}>{k}</span>
+                        <span style={{fontSize:12,color:"#e2e8f0",...(k==="AREA"||k==="TAX VALUE"||k==="REG. YEAR"?mono:syne)}}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Bars */}
+                  {[
+                    {label:"AREA",   pct:Math.round(selected.area/MAX_AREA*100),    grad:[gc(selected.land_use).fill,gc(selected.land_use).stroke]},
+                    {label:"VALUE",  pct:Math.round(selected.tax_value/MAX_TAX*100), grad:["#f59e0b","#fbbf24"]},
+                  ].map(b=>(
+                    <div key={b.label} style={{marginBottom:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3,...mono,fontSize:8,color:"#475569"}}>
+                        <span>{b.label} VS MAX</span>
+                        <span>{b.pct}%</span>
+                      </div>
+                      <div className="progress-bar">
+                        <div className="progress-fill" style={{width:`${b.pct}%`,background:`linear-gradient(to right,${b.grad[0]},${b.grad[1]})`}}/>
+                      </div>
+                    </div>
+                  ))}
+                  {/* Actions */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}>
+                    <button onClick={()=>showToast(`Exported ${selected.parcel_id} as CSV`)}
+                      style={{...mono,fontSize:9,padding:"8px 0",borderRadius:4,border:"1px solid #1e3a5f",color:"#93c5fd",background:"transparent",cursor:"pointer",letterSpacing:".04em",transition:"background .2s"}}>
+                      ↓ EXPORT
+                    </button>
+                    <button onClick={()=>{ const l=layers.current[selected.parcel_id]; if(l&&mapObj.current) mapObj.current.fitBounds(l.getBounds(),{padding:[60,60]}); if(mobile)setSheet("peek"); }}
+                      style={{...mono,fontSize:9,padding:"8px 0",borderRadius:4,border:"none",color:"#dbeafe",background:"#1d4ed8",cursor:"pointer",letterSpacing:".04em",transition:"background .2s"}}>
+                      FLY TO →
+                    </button>
                   </div>
                 </div>
-              )}
-
-              {/* Search overlay badge */}
-              {search && matchCount > 0 && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 fade-up">
-                  <div className="bg-amber-500 text-slate-900 rounded px-3 py-1.5 text-xs font-bold" style={{fontFamily:'Space Mono'}}>
-                    {matchCount} parcel{matchCount > 1 ? 's' : ''} matching "{search.toUpperCase()}"
-                  </div>
+              ):(
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 20px",gap:12,opacity:.5,textAlign:"center"}}>
+                  <svg width="38" height="38" viewBox="0 0 38 38" fill="none"><rect x="5" y="5" width="28" height="28" rx="4" stroke="#475569" strokeWidth="1.2" strokeDasharray="4 3"/><path d="M12 19h14M19 12v14" stroke="#475569" strokeWidth="1.2"/></svg>
+                  <p style={{...mono,fontSize:10,color:"#475569",lineHeight:1.9}}>Select a parcel on the map</p>
                 </div>
               )}
-            </div>
 
-            {/* ── SIDEBAR ── */}
-            <div className="sidebar-glass w-72 shrink-0 flex flex-col z-40 overflow-hidden">
-              {/* Sidebar Tabs */}
-              <div className="flex border-b border-slate-800">
-                {[{id:'info',label:'PROPERTY INFO'},{id:'legend',label:'LEGEND'}].map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setSidebarTab(tab.id)}
-                    className={`flex-1 py-2.5 text-xs font-bold tracking-widest transition-colors ${sidebarTab === tab.id ? 'text-blue-300 border-b-2 border-blue-400' : 'text-slate-500 hover:text-slate-300'}`}
-                    style={{fontFamily:'Space Mono',fontSize:'9px'}}
-                  >
-                    {tab.label}
+              {/* Parcel list */}
+              <div style={{borderTop:"1px solid #0f172a"}}>
+                <div style={{padding:"8px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <span style={{...mono,fontSize:8,color:"#475569",letterSpacing:".1em"}}>PARCELS ({filtered.length})</span>
+                  {filterLU!=="ALL"&&<button onClick={()=>setFilterLU("ALL")} style={{...mono,fontSize:8,color:"#3b82f6",background:"none",border:"none",cursor:"pointer"}}>CLEAR</button>}
+                </div>
+                {filtered.map(f=>{
+                  const p=f.properties, isSel=selected?.parcel_id===p.parcel_id;
+                  return (
+                    <button key={p.parcel_id}
+                      onClick={()=>{ setSelected(p); setTab("info"); if(mobile)setSheet("open"); }}
+                      style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"9px 14px",textAlign:"left",
+                        background:isSel?"rgba(30,41,59,.5)":"transparent",
+                        borderLeft:`2px solid ${isSel?"#3b82f6":"transparent"}`,
+                        border:"none",borderLeftWidth:2,borderLeftStyle:"solid",borderLeftColor:isSel?"#3b82f6":"transparent",
+                        cursor:"pointer",transition:"background .15s"}}>
+                      <div style={{width:7,height:7,borderRadius:"50%",flexShrink:0,background:gc(p.land_use).fill,boxShadow:`0 0 5px ${gc(p.land_use).fill}`}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{...mono,fontSize:11,fontWeight:700,color:isSel?"#93c5fd":"#e2e8f0"}}>{p.parcel_id}</div>
+                        <div style={{fontSize:11,color:"#475569",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.owner}</div>
+                      </div>
+                      <div style={{textAlign:"right",flexShrink:0}}>
+                        <div style={{...mono,fontSize:9,color:"#334155"}}>{(p.area/1000).toFixed(1)}k m²</div>
+                        <div style={{...mono,fontSize:8,color:ST_COLOR[p.status]||"#475569"}}>{p.status}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+                {!filtered.length&&<div style={{padding:"20px 14px",...mono,fontSize:10,color:"#334155",textAlign:"center"}}>No parcels match filter</div>}
+              </div>
+            </div>
+          )}
+
+          {/* ── STATS TAB ── */}
+          {tab==="stats"&&(
+            <div className="fade-up" style={{flex:1,overflowY:"auto",padding:14}}>
+              {/* Summary grid */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+                {[
+                  {l:"TOTAL PARCELS", v:stats.total,                         c:"#93c5fd"},
+                  {l:"TOTAL AREA",    v:`${fmt(stats.area)} m²`,             c:"#34d399"},
+                  {l:"REG. VALUE",    v:fmtN(stats.tax),                     c:"#fbbf24"},
+                  {l:"UNIQUE LGAs",   v:stats.lgas,                          c:"#c084fc"},
+                ].map(s=>(
+                  <div key={s.l} style={{border:"1px solid #0f172a",borderRadius:5,padding:"10px 12px",background:"#0a0e1a"}}>
+                    <div style={{...mono,fontSize:8,color:"#475569",letterSpacing:".08em",marginBottom:4}}>{s.l}</div>
+                    <div style={{...mono,fontSize:13,fontWeight:700,color:s.c}}>{s.v}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Bar chart */}
+              <div style={{marginBottom:16}}>
+                <div style={{...mono,fontSize:8,color:"#475569",letterSpacing:".1em",marginBottom:10}}>BY LAND USE</div>
+                <BarChart data={stats.byLU}/>
+              </div>
+
+              {/* Status breakdown */}
+              <div style={{marginBottom:16}}>
+                <div style={{...mono,fontSize:8,color:"#475569",letterSpacing:".1em",marginBottom:8}}>BY STATUS</div>
+                {Object.entries(stats.byStatus).map(([st,cnt])=>(
+                  <div key={st} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                    <span style={{...mono,fontSize:9,color:ST_COLOR[st]||"#94a3b8",width:68,flexShrink:0}}>{st}</span>
+                    <div className="progress-bar" style={{flex:1}}>
+                      <div className="progress-fill" style={{width:`${Math.round(cnt/stats.total*100)}%`,background:ST_COLOR[st]||"#64748b"}}/>
+                    </div>
+                    <span style={{...mono,fontSize:9,color:"#334155",width:16,textAlign:"right"}}>{cnt}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Top by area */}
+              <div>
+                <div style={{...mono,fontSize:8,color:"#475569",letterSpacing:".1em",marginBottom:8}}>TOP 5 BY AREA</div>
+                {[...PARCELS.features].sort((a,b)=>b.properties.area-a.properties.area).slice(0,5).map((f,i)=>{
+                  const p=f.properties;
+                  return (
+                    <button key={p.parcel_id}
+                      onClick={()=>{ setSelected(p); setTab("info"); if(mobile)setSheet("open"); }}
+                      style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"7px 4px",background:"none",border:"none",borderBottom:"1px solid #0a0e1a",cursor:"pointer",textAlign:"left",transition:"background .15s"}}>
+                      <span style={{...mono,fontSize:9,color:"#1e293b",width:14}}>{i+1}</span>
+                      <div style={{width:6,height:6,borderRadius:"50%",background:gc(p.land_use).fill,flexShrink:0}}/>
+                      <span style={{...mono,fontSize:9,color:"#93c5fd",flexShrink:0}}>{p.parcel_id}</span>
+                      <span style={{fontSize:10,color:"#64748b",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.owner}</span>
+                      <span style={{...mono,fontSize:9,color:"#334155",flexShrink:0}}>{fmt(p.area)}m²</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Top by value */}
+              <div style={{marginTop:16}}>
+                <div style={{...mono,fontSize:8,color:"#475569",letterSpacing:".1em",marginBottom:8}}>TOP 5 BY TAX VALUE</div>
+                {[...PARCELS.features].sort((a,b)=>b.properties.tax_value-a.properties.tax_value).slice(0,5).map((f,i)=>{
+                  const p=f.properties;
+                  return (
+                    <button key={p.parcel_id}
+                      onClick={()=>{ setSelected(p); setTab("info"); if(mobile)setSheet("open"); }}
+                      style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"7px 4px",background:"none",border:"none",borderBottom:"1px solid #0a0e1a",cursor:"pointer",textAlign:"left"}}>
+                      <span style={{...mono,fontSize:9,color:"#1e293b",width:14}}>{i+1}</span>
+                      <div style={{width:6,height:6,borderRadius:"50%",background:gc(p.land_use).fill,flexShrink:0}}/>
+                      <span style={{...mono,fontSize:9,color:"#93c5fd",flexShrink:0}}>{p.parcel_id}</span>
+                      <span style={{fontSize:10,color:"#64748b",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.owner}</span>
+                      <span style={{...mono,fontSize:9,color:"#f59e0b",flexShrink:0}}>{fmtN(p.tax_value)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── LEGEND TAB ── */}
+          {tab==="legend"&&(
+            <div className="fade-up" style={{flex:1,overflowY:"auto",padding:14}}>
+              <div style={{...mono,fontSize:8,color:"#475569",letterSpacing:".1em",marginBottom:12}}>LAND USE CLASSIFICATION</div>
+              {Object.entries(LU).map(([lu,cfg])=>{
+                const cnt=PARCELS.features.filter(f=>f.properties.land_use===lu).length;
+                if(!cnt) return null;
+                const area=PARCELS.features.filter(f=>f.properties.land_use===lu).reduce((s,f)=>s+f.properties.area,0);
+                return (
+                  <div key={lu}
+                    onClick={()=>{ setFilterLU(lu===filterLU?"ALL":lu); setTab("info"); }}
+                    style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,cursor:"pointer"}}>
+                    <div style={{width:26,height:16,borderRadius:3,flexShrink:0,background:cfg.fill+"40",border:`1.5px solid ${cfg.stroke}`}}/>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:12,color:"#e2e8f0"}}>{lu}</div>
+                      <div style={{...mono,fontSize:8,color:"#475569"}}>{cnt} parcel{cnt!==1?"s":""} · {fmt(area)} m²</div>
+                    </div>
+                    <span style={{...mono,fontSize:8,color:filterLU===lu?"#3b82f6":"#1e293b"}}>{filterLU===lu?"✓ ON":"FILTER"}</span>
+                  </div>
+                );
+              })}
+
+              <div style={{borderTop:"1px solid #0f172a",paddingTop:14,marginTop:4,marginBottom:14}}>
+                <div style={{...mono,fontSize:8,color:"#475569",letterSpacing:".1em",marginBottom:8}}>STATUS</div>
+                {Object.entries(ST_COLOR).map(([s,c])=>(
+                  <div key={s} style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:c,flexShrink:0}}/>
+                    <span style={{...mono,fontSize:10,color:c}}>{s}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{borderTop:"1px solid #0f172a",paddingTop:14,marginBottom:14}}>
+                <div style={{...mono,fontSize:8,color:"#475569",letterSpacing:".1em",marginBottom:8}}>BASEMAP</div>
+                {[{k:"dark",l:"Dark (CARTO)"},{k:"sat",l:"Satellite (Esri)"},{k:"topo",l:"Topographic"}].map(b=>(
+                  <button key={b.k} onClick={()=>switchBasemap(b.k)}
+                    style={{display:"flex",alignItems:"center",gap:7,width:"100%",background:"none",border:"none",cursor:"pointer",marginBottom:7,textAlign:"left"}}>
+                    <div style={{width:11,height:11,borderRadius:"50%",border:`2px solid ${basemap===b.k?"#3b82f6":"#1e293b"}`,background:basemap===b.k?"#3b82f6":"transparent",flexShrink:0}}/>
+                    <span style={{...mono,fontSize:10,color:basemap===b.k?"#93c5fd":"#475569"}}>{b.l}</span>
                   </button>
                 ))}
               </div>
 
-              {/* INFO TAB */}
-              {sidebarTab === 'info' && (
-                <div className="flex-1 overflow-y-auto">
-                  {!selected ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center px-6 gap-4 opacity-60">
-                      <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                        <rect x="8" y="8" width="32" height="32" rx="4" stroke="#475569" strokeWidth="1.5" strokeDasharray="4 3"/>
-                        <path d="M16 24h16M24 16v16" stroke="#475569" strokeWidth="1.5"/>
-                      </svg>
-                      <p className="text-slate-500 text-xs leading-relaxed" style={{fontFamily:'Space Mono'}}>
-                        Select a parcel on the map to view property details
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="p-4 fade-up">
-                      {/* Parcel ID Header */}
-                      <div className="mb-4">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs text-slate-500" style={{fontFamily:'Space Mono',fontSize:'9px'}}>PARCEL ID</span>
-                          <button
-                            onClick={() => setSelected(null)}
-                            className="text-slate-600 hover:text-white text-lg leading-none transition-colors"
-                            title="Close"
-                          >×</button>
-                        </div>
-                        <div className="text-2xl font-bold text-blue-300" style={{fontFamily:'Space Mono'}}>
-                          {selected.parcel_id}
-                        </div>
-                        <div className="text-xs text-slate-400 mt-0.5">{selected.address}</div>
-                      </div>
-
-                      {/* Land use tag */}
-                      <div className={`land-use-tag inline-block px-2 py-1 rounded mb-4 ${getColor(selected.land_use).tag}`}>
-                        ● {selected.land_use}
-                      </div>
-
-                      {/* Property details */}
-                      <div className="space-y-0 border border-slate-800 rounded overflow-hidden mb-4">
-                        {[
-                          { label: "OWNER", value: selected.owner },
-                          { label: "LAND USE", value: selected.land_use },
-                          { label: "AREA", value: `${selected.area.toLocaleString()} m²` },
-                          { label: "STATUS", value: "Registered" },
-                        ].map((row, i) => (
-                          <div key={row.label} className={`flex items-start px-3 py-2.5 gap-3 ${i % 2 === 0 ? 'bg-slate-900' : 'bg-slate-950'}`}>
-                            <span className="text-slate-500 shrink-0 w-16" style={{fontFamily:'Space Mono',fontSize:'9px',paddingTop:'2px'}}>{row.label}</span>
-                            <span className="text-slate-200 text-xs leading-snug" style={{fontFamily:row.label === 'AREA' ? 'Space Mono' : 'Syne'}}>{row.value}</span>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Area bar */}
-                      <div className="mb-4">
-                        <div className="flex justify-between text-xs text-slate-500 mb-1" style={{fontFamily:'Space Mono',fontSize:'9px'}}>
-                          <span>AREA RELATIVE TO MAX</span>
-                          <span>{Math.round((selected.area / 45000) * 100)}%</span>
-                        </div>
-                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-700"
-                            style={{
-                              width: `${Math.round((selected.area / 45000) * 100)}%`,
-                              background: `linear-gradient(to right, ${getColor(selected.land_use).fill}, ${getColor(selected.land_use).stroke})`,
-                            }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <button className="py-2 text-xs border border-blue-800 text-blue-300 rounded hover:bg-blue-900 transition-colors" style={{fontFamily:'Space Mono',fontSize:'10px'}}>
-                          EXPORT
-                        </button>
-                        <button className="py-2 text-xs bg-blue-800 text-blue-100 rounded hover:bg-blue-700 transition-colors" style={{fontFamily:'Space Mono',fontSize:'10px'}}>
-                          DETAILS →
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Parcel List */}
-                  <div className="border-t border-slate-800 mt-2">
-                    <div className="px-4 py-2 text-slate-500" style={{fontFamily:'Space Mono',fontSize:'9px',letterSpacing:'0.1em'}}>ALL PARCELS</div>
-                    <div className="space-y-0">
-                      {PARCELS_GEOJSON.features
-                        .filter(f => !search || f.properties.parcel_id.toLowerCase().includes(search.toLowerCase()))
-                        .map(f => (
-                          <button
-                            key={f.properties.parcel_id}
-                            onClick={() => { setSelected(f.properties); setSidebarTab('info'); }}
-                            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-slate-800 ${selected?.parcel_id === f.properties.parcel_id ? 'bg-slate-800 border-l-2 border-blue-400' : ''}`}
-                          >
-                            <div className="w-2 h-2 rounded-full shrink-0" style={{background: getColor(f.properties.land_use).fill, boxShadow: `0 0 6px ${getColor(f.properties.land_use).fill}`}} />
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs font-bold text-slate-200" style={{fontFamily:'Space Mono'}}>{f.properties.parcel_id}</div>
-                              <div className="text-xs text-slate-500 truncate">{f.properties.owner}</div>
-                            </div>
-                            <div className="text-xs text-slate-600" style={{fontFamily:'Space Mono',fontSize:'9px'}}>{(f.properties.area/1000).toFixed(1)}k</div>
-                          </button>
-                        ))}
-                    </div>
-                  </div>
+              <div style={{borderTop:"1px solid #0f172a",paddingTop:14}}>
+                <div style={{...mono,fontSize:8,color:"#475569",letterSpacing:".1em",marginBottom:6}}>DATA SOURCE</div>
+                <div style={{...mono,fontSize:9,color:"#1e293b",lineHeight:2}}>
+                  Lagos State Geographic<br/>Information Systems (LAGIS)<br/>Sample Registry Data © 2024<br/>CRS: WGS 84 / EPSG:4326
                 </div>
-              )}
-
-              {/* LEGEND TAB */}
-              {sidebarTab === 'legend' && (
-                <div className="flex-1 overflow-y-auto p-4 fade-up">
-                  <div className="text-xs text-slate-400 mb-4 leading-relaxed" style={{fontFamily:'Space Mono',fontSize:'10px'}}>
-                    LAND USE CLASSIFICATION
-                  </div>
-                  <div className="space-y-3">
-                    {Object.entries(LAND_USE_COLORS).map(([lu, colors]) => {
-                      const count = PARCELS_GEOJSON.features.filter(f => f.properties.land_use === lu).length;
-                      return (
-                        <div key={lu} className="flex items-center gap-3">
-                          <div className="w-8 h-5 rounded shrink-0 border" style={{background: colors.fill + '55', borderColor: colors.stroke}} />
-                          <div className="flex-1">
-                            <div className="text-xs text-slate-200" style={{fontFamily:'Syne'}}>{lu}</div>
-                            <div className="text-xs text-slate-500" style={{fontFamily:'Space Mono',fontSize:'9px'}}>{count} parcel{count !== 1 ? 's' : ''}</div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-6 pt-4 border-t border-slate-800">
-                    <div className="text-xs text-slate-500 mb-3" style={{fontFamily:'Space Mono',fontSize:'9px'}}>INTERACTION GUIDE</div>
-                    <div className="space-y-2 text-xs text-slate-400" style={{fontFamily:'Space Mono',fontSize:'10px'}}>
-                      <div className="flex gap-2"><span className="text-blue-400">→</span>Click polygon to select parcel</div>
-                      <div className="flex gap-2"><span className="text-blue-400">→</span>Hover to preview details</div>
-                      <div className="flex gap-2"><span className="text-amber-400">→</span>Search by parcel ID to highlight</div>
-                      <div className="flex gap-2"><span className="text-blue-400">→</span>Scroll/pinch to zoom map</div>
-                    </div>
-                  </div>
-
-                  <div className="mt-6 pt-4 border-t border-slate-800">
-                    <div className="text-xs text-slate-500 mb-2" style={{fontFamily:'Space Mono',fontSize:'9px'}}>DATA SOURCE</div>
-                    <div className="text-xs text-slate-600" style={{fontFamily:'Space Mono',fontSize:'9px'}}>
-                      Lagos State Geographic<br/>Information Systems (LAGIS)<br/>Sample Data © 2024
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Footer */}
-              <div className="border-t border-slate-800 px-4 py-2 flex items-center justify-between shrink-0">
-                <span className="text-slate-600" style={{fontFamily:'Space Mono',fontSize:'9px'}}>CRS: WGS 84 / EPSG:4326</span>
-                <span className="text-slate-600" style={{fontFamily:'Space Mono',fontSize:'9px'}}>v1.0.0</span>
               </div>
             </div>
+          )}
+
+          {/* Footer */}
+          <div style={{flexShrink:0,borderTop:"1px solid #0a0e1a",padding:"6px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(6,9,16,.8)"}}>
+            <span style={{...mono,fontSize:8,color:"#1e293b"}}>{mobile?`${filtered.length} parcels`:`Z${zoom} · WGS84`}</span>
+            <span className="blink" style={{...mono,fontSize:8,color:"#1e3a5f"}}>■</span>
+            <span style={{...mono,fontSize:8,color:"#1e293b"}}>{clock}</span>
           </div>
         </div>
-      );
-    }
 
-    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
-  </script>
+      </div>{/* body */}
+
+      {/* ══ MOBILE BOTTOM NAV ══ */}
+      <div className="mobile-bottom-nav glass-dark">
+        {[
+          {id:"info",   icon:Ic.Info,   l:"INFO"},
+          {id:"stats",  icon:Ic.Chart,  l:"STATS"},
+          {id:"legend", icon:Ic.Layers, l:"LEGEND"},
+          {id:"map",    icon:Ic.Map,    l:"MAP"},
+        ].map(t=>(
+          <button key={t.id}
+            onClick={()=>{
+              if(t.id==="map"){ setSheet("peek"); resetView(); }
+              else { setTab(t.id); setSheet("open"); }
+            }}
+            style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,
+              padding:"6px 0",background:"none",border:"none",cursor:"pointer",
+              color:(t.id!=="map"&&tab===t.id)||(t.id==="map"&&sheet==="peek")?"#93c5fd":"#334155",
+              transition:"color .2s"}}>
+            {t.icon}
+            <span style={{...mono,fontSize:7,letterSpacing:".06em"}}>{t.l}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ══ TOAST ══ */}
+      {toast&&<div className="toast">{toast}</div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
 </body>
 </html>
